@@ -9,3 +9,4 @@ core.*
 .mypy_cache/
 .DS_Store
 camera_debug.jpg
+data/
