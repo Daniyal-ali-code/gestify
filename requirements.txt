@@ -1,8 +1,13 @@
-torch
-opencv-python
-mediapipe
-numpy
-pandas
-scikit-learn
-matplotlib
-Pillow
+# Tested dependencies for Gestify on Python 3.11
+opencv-contrib-python==5.0.0.93
+numpy==2.4.6
+protobuf==4.25.8
+attrs==26.1.0
+absl-py==2.5.1
+flatbuffers==25.12.19
+matplotlib>=3.8
+sounddevice>=0.4.4
+customtkinter==6.0.0
+pillow==13.0.0
+ai-edge-litert==2.3.0
+# optional: pyttsx3
