@@ -132,23 +132,24 @@ HAND_CONNECTIONS = [
 
 # ------------------------------------------------------------------ palette
 # (light, dark) tuples - customtkinter switches them automatically.
-BG = ("#F4EDDF", "#10101A")
-CARD = ("#FFFCF5", "#1A1A29")
-CARD2 = ("#EBE1CB", "#232336")
-FIELD = ("#FFFFFF", "#12121C")
-GOLD = ("#8C6B2F", "#C9A86A")
-GOLD_H = ("#745724", "#DDBE82")
-BURG = ("#7A1F2B", "#8E2233")
-BURG_H = ("#5F1822", "#A62A3F")
-TEXT = ("#231F1A", "#F2EDE0")
-SUB = ("#6D6558", "#A39B8A")
-ON_GOLD = ("#FFFCF5", "#14141F")
-ON_BURG = ("#FFFCF5", "#F8F3E8")
-SEG_OFF = ("#7B705C", "#2C2C42")
-SEG_OFF_H = ("#6A6050", "#3A3A55")
-OK = ("#2E7D4F", "#5FBF85")
-WARN = ("#A85F00", "#E0A040")
-BAD = ("#B3261E", "#E5726B")
+BG = ("#F3F6F8", "#111318")
+CARD = ("#FFFFFF", "#191D24")
+CARD2 = ("#EDF1F4", "#222933")
+FIELD = ("#F7F9FA", "#141A21")
+GOLD = ("#087F79", "#38C9C1")
+GOLD_H = ("#066A65", "#2BAFA8")
+BURG = ("#176A73", "#246F78")
+BURG_H = ("#10535B", "#2A848C")
+TEXT = ("#18212B", "#E7EDF2")
+SUB = ("#697586", "#A3ADB9")
+ON_GOLD = ("#FFFFFF", "#0C1718")
+ON_BURG = ("#FFFFFF", "#F3FAFA")
+SEG_OFF = ("#E7ECEF", "#252D37")
+SEG_OFF_H = ("#D8E0E5", "#303A46")
+OK = ("#21865D", "#57C890")
+WARN = ("#A96B11", "#E5B454")
+BAD = ("#B54343", "#E27878")
+ACTIVE = ("#E0F3F1", "#1D3A3B")
 
 
 # ----------------------------------------------------------------- settings
@@ -1056,15 +1057,15 @@ class App(ctk.CTk):
             self.geometry(self.cfg["geometry"])
         except Exception:
             self.geometry("1280x820")
-        self.minsize(1080, 700)
+        self.minsize(1120, 700)
         self.fonts = {
-            "title": ctk.CTkFont(family="Georgia", size=26, weight="bold"),
-            "h1": ctk.CTkFont(family="Georgia", size=20, weight="bold"),
-            "h2": ctk.CTkFont(family="Georgia", size=15, weight="bold"),
-            "big": ctk.CTkFont(family="Georgia", size=52, weight="bold"),
-            "serif": ctk.CTkFont(family="Georgia", size=17),
-            "small": ctk.CTkFont(size=12),
-            "small_b": ctk.CTkFont(size=11, weight="bold"),
+            "title": ctk.CTkFont(family="Segoe UI", size=25, weight="bold"),
+            "h1": ctk.CTkFont(family="Segoe UI", size=21, weight="bold"),
+            "h2": ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            "big": ctk.CTkFont(family="Segoe UI", size=48, weight="bold"),
+            "serif": ctk.CTkFont(family="Segoe UI", size=16),
+            "small": ctk.CTkFont(family="Segoe UI", size=12),
+            "small_b": ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
         }
         self.q = queue.Queue()
         self.ui_q = queue.Queue()
@@ -1093,66 +1094,209 @@ class App(ctk.CTk):
         self.after(60, self._tick)
 
     # ------------------------------------------------------------- layout
+
     def _card(self, parent, **kw):
-        return ctk.CTkFrame(parent, fg_color=CARD, border_width=1, border_color=GOLD, corner_radius=10, **kw)
+        return ctk.CTkFrame(
+            parent, fg_color=CARD, border_width=1,
+            border_color=("#E2E8ED", "#2B333E"), corner_radius=12, **kw
+        )
 
     def _build_header(self):
-        hdr = ctk.CTkFrame(self, fg_color=CARD, border_width=1, border_color=GOLD, corner_radius=0)
-        hdr.pack(fill="x")
-        left = ctk.CTkFrame(hdr, fg_color="transparent")
-        left.pack(side="left", padx=22, pady=10)
-        ctk.CTkLabel(left, text=APP_NAME, font=self.fonts["title"], text_color=GOLD).pack(anchor="w")
-        ctk.CTkLabel(left, text=APP_SUB, font=self.fonts["small_b"], text_color=SUB).pack(anchor="w")
-        right = ctk.CTkFrame(hdr, fg_color="transparent")
-        right.pack(side="right", padx=18)
-        ghost_button(right, "Settings", self.open_settings, width=100).pack(side="right", padx=4)
-        self.theme_btn = gold_button(right, "", self.toggle_theme, width=100)
-        self.theme_btn.pack(side="right", padx=4)
+        header = ctk.CTkFrame(self, fg_color=CARD, corner_radius=0, height=72)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+
+        brand = ctk.CTkFrame(header, fg_color="transparent")
+        brand.pack(side="left", padx=22, pady=10)
+
+        mark = ctk.CTkFrame(brand, width=42, height=42, corner_radius=12, fg_color=GOLD)
+        mark.pack(side="left", padx=(0, 12))
+        mark.pack_propagate(False)
+        ctk.CTkLabel(
+            mark, text="G", font=ctk.CTkFont(family="Segoe UI", size=23, weight="bold"),
+            text_color=ON_GOLD
+        ).place(relx=0.5, rely=0.5, anchor="center")
+
+        names = ctk.CTkFrame(brand, fg_color="transparent")
+        names.pack(side="left", anchor="center")
+        ctk.CTkLabel(names, text="Gestify", font=self.fonts["title"], text_color=TEXT).pack(anchor="w")
+        ctk.CTkLabel(
+            names, text="ASL FINGERSPELLING  •  SIGN RECOGNITION",
+            font=self.fonts["small_b"], text_color=SUB
+        ).pack(anchor="w")
+
+        actions = ctk.CTkFrame(header, fg_color="transparent")
+        actions.pack(side="right", padx=20)
+        ghost_button(actions, "Settings", self.open_settings, width=100).pack(side="right", padx=(8, 0))
+        self.theme_btn = gold_button(actions, "Light theme", self.toggle_theme, width=112)
+        self.theme_btn.pack(side="right")
         self._theme_label()
+        ctk.CTkFrame(self, height=1, fg_color=("#E2E8ED", "#2B333E")).pack(fill="x")
 
     def _build_body(self):
         body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=16, pady=(14, 8))
-        body.grid_columnconfigure(0, weight=1)
-        body.grid_columnconfigure(1, weight=0, minsize=430)
+        body.pack(fill="both", expand=True, padx=16, pady=14)
         body.grid_rowconfigure(0, weight=1)
+        body.grid_columnconfigure(1, weight=1)
 
-        # ---- left: camera
-        vid = self._card(body)
-        vid.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
-        top = ctk.CTkFrame(vid, fg_color="transparent")
-        top.pack(fill="x", padx=16, pady=(12, 6))
-        ctk.CTkLabel(top, text="Speculum", font=self.fonts["h1"], text_color=GOLD).pack(side="left")
+        sidebar = self._card(body)
+        sidebar.configure(corner_radius=14, width=218)
+        sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 14))
+        sidebar.grid_propagate(False)
+
+        ctk.CTkLabel(sidebar, text="WORKSPACE", font=self.fonts["small_b"], text_color=SUB).pack(
+            anchor="w", padx=16, pady=(20, 10)
+        )
+
+        self.nav_buttons = {}
+        nav_items = [
+            ("live", "◉", "Live recognition"),
+            ("train", "✳", "Custom trainer"),
+            ("history", "↶", "History"),
+            ("models", "◇", "Model library"),
+        ]
+        for page, symbol, label in nav_items:
+            button = ctk.CTkButton(
+                sidebar, text=f"  {symbol}     {label}", anchor="w", height=42,
+                corner_radius=9, fg_color="transparent", hover_color=CARD2,
+                text_color=TEXT, font=ctk.CTkFont(family="Segoe UI", size=13),
+                command=lambda p=page: self.show_page(p)
+            )
+            button.pack(fill="x", padx=9, pady=3)
+            self.nav_buttons[page] = button
+
+        ctk.CTkFrame(sidebar, height=1, fg_color=("#E2E8ED", "#2B333E")).pack(
+            fill="x", padx=14, pady=(18, 12)
+        )
+        ctk.CTkLabel(sidebar, text="PREFERENCES", font=self.fonts["small_b"], text_color=SUB).pack(
+            anchor="w", padx=16, pady=(0, 8)
+        )
+        ghost_button(sidebar, "Settings", self.open_settings, width=176, height=34).pack(
+            fill="x", padx=12, pady=3
+        )
+        ctk.CTkLabel(
+            sidebar, text="GESTIFY  •  DESKTOP",
+            font=self.fonts["small_b"], text_color=SUB
+        ).pack(side="bottom", anchor="w", padx=15, pady=15)
+
+        main = ctk.CTkFrame(body, fg_color="transparent")
+        main.grid(row=0, column=1, sticky="nsew")
+        main.grid_rowconfigure(1, weight=1)
+        main.grid_columnconfigure(0, weight=1)
+
+        heading = ctk.CTkFrame(main, fg_color="transparent")
+        heading.grid(row=0, column=0, sticky="ew", pady=(2, 12))
+        self.page_title = ctk.CTkLabel(heading, text="Live recognition", font=self.fonts["h1"], text_color=TEXT)
+        self.page_title.pack(anchor="w")
+        self.page_subtitle = ctk.CTkLabel(
+            heading, text="Recognize ASL signs in real time and build a transcript.",
+            font=self.fonts["small"], text_color=SUB
+        )
+        self.page_subtitle.pack(anchor="w", pady=(2, 0))
+
+        self.page_host = ctk.CTkFrame(main, fg_color="transparent")
+        self.page_host.grid(row=1, column=0, sticky="nsew")
+        self.page_host.grid_rowconfigure(0, weight=1)
+        self.page_host.grid_columnconfigure(0, weight=1)
+        self.pages = {}
+
+        live = ctk.CTkFrame(self.page_host, fg_color="transparent")
+        live.grid_rowconfigure(0, weight=1)
+        live.grid_columnconfigure((0, 1), weight=1, uniform="live")
+        self.pages["live"] = live
+
+        camera_card = self._card(live)
+        camera_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        camera_top = ctk.CTkFrame(camera_card, fg_color="transparent")
+        camera_top.pack(fill="x", padx=16, pady=(14, 10))
+        ctk.CTkLabel(camera_top, text="Camera preview", font=self.fonts["h2"], text_color=TEXT).pack(side="left")
         self.mode_btn = ctk.CTkSegmentedButton(
-            top, values=MODES, command=self.set_mode, selected_color=BURG, selected_hover_color=BURG_H,
-            unselected_color=SEG_OFF, unselected_hover_color=SEG_OFF_H, text_color=ON_BURG,
-            fg_color=SEG_OFF, corner_radius=6)
+            camera_top, values=MODES, command=self.set_mode,
+            selected_color=BURG, selected_hover_color=BURG_H,
+            unselected_color=SEG_OFF, unselected_hover_color=SEG_OFF_H,
+            text_color=ON_BURG, fg_color=SEG_OFF, corner_radius=8
+        )
         self.mode_btn.set(self.cfg["mode"])
         self.mode_btn.pack(side="right")
-        rule(vid).pack(fill="x", padx=16)
-        self.video_holder = ctk.CTkFrame(vid, fg_color=("#E4DAC4", "#0B0B12"), corner_radius=8)
-        self.video_holder.pack(fill="both", expand=True, padx=16, pady=12)
+        ctk.CTkFrame(camera_card, height=1, fg_color=("#E2E8ED", "#2B333E")).pack(fill="x", padx=15)
+        self.video_holder = ctk.CTkFrame(
+            camera_card, fg_color=("#E9EEF1", "#0D1117"), corner_radius=10
+        )
+        self.video_holder.pack(fill="both", expand=True, padx=14, pady=14)
         self.video_holder.pack_propagate(False)
-        self.video_label = ctk.CTkLabel(self.video_holder, text="Waiting for camera...", text_color=SUB,
-                                        font=self.fonts["serif"])
+        self.video_label = ctk.CTkLabel(
+            self.video_holder, text="Waiting for camera...", text_color=SUB, font=self.fonts["serif"]
+        )
         self.video_label.place(relx=0.5, rely=0.5, anchor="center")
-        self.hint_label = ctk.CTkLabel(vid, text="", text_color=WARN, wraplength=640, font=self.fonts["small"])
-        self.hint_label.pack(pady=(0, 10))
+        self.hint_label = ctk.CTkLabel(
+            camera_card, text="", text_color=WARN, wraplength=520, font=self.fonts["small"]
+        )
+        self.hint_label.pack(fill="x", padx=16, pady=(0, 12))
 
-        # ---- right: tabs
-        tabs = ctk.CTkTabview(
-            body, fg_color=CARD, border_width=1, border_color=GOLD, corner_radius=10,
-            segmented_button_fg_color=SEG_OFF, segmented_button_selected_color=BURG,
-            segmented_button_selected_hover_color=BURG_H, segmented_button_unselected_color=SEG_OFF,
-            segmented_button_unselected_hover_color=SEG_OFF_H, text_color=ON_BURG)
-        tabs.grid(row=0, column=1, sticky="nsew")
-        self.tabs = tabs
-        for name in ("Translate", "Train", "History", "Models"):
-            tabs.add(name)
-        self._tab_translate(tabs.tab("Translate"))
-        self._tab_train(tabs.tab("Train"))
-        self._tab_history(tabs.tab("History"))
-        self._tab_models(tabs.tab("Models"))
+        translate_card = self._card(live)
+        translate_card.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        self._tab_translate(translate_card)
+        self.conf_bar.configure(width=280)
+        self.hold_bar.configure(width=280)
+
+        train_page = ctk.CTkFrame(self.page_host, fg_color="transparent")
+        train_page.grid_rowconfigure(0, weight=1)
+        train_page.grid_columnconfigure(0, weight=1)
+        train_card = self._card(train_page)
+        train_card.grid(row=0, column=0, sticky="nsew")
+        self._tab_train(train_card)
+        self.pages["train"] = train_page
+
+        history_page = ctk.CTkFrame(self.page_host, fg_color="transparent")
+        history_page.grid_rowconfigure(0, weight=1)
+        history_page.grid_columnconfigure(0, weight=1)
+        history_card = self._card(history_page)
+        history_card.grid(row=0, column=0, sticky="nsew")
+        self._tab_history(history_card)
+        self.pages["history"] = history_page
+
+        models_page = ctk.CTkFrame(self.page_host, fg_color="transparent")
+        models_page.grid_rowconfigure(0, weight=1)
+        models_page.grid_columnconfigure(0, weight=1)
+        models_card = self._card(models_page)
+        models_card.grid(row=0, column=0, sticky="nsew")
+        self._tab_models(models_card)
+        self.pages["models"] = models_page
+
+        self.show_page("live")
+
+    def show_page(self, page):
+        titles = {
+            "live": ("Live recognition", "Recognize ASL signs in real time and build a transcript."),
+            "train": ("Custom trainer", "Record and manage your own custom signs."),
+            "history": ("Recognition history", "Review previous recognition events."),
+            "models": ("Model library", "Manage the pretrained recognition models."),
+        }
+        if page not in self.pages:
+            return
+        for frame in self.pages.values():
+            frame.grid_forget()
+        self.pages[page].grid(row=0, column=0, sticky="nsew")
+        title, subtitle = titles[page]
+        self.page_title.configure(text=title)
+        self.page_subtitle.configure(text=subtitle)
+        for key, button in self.nav_buttons.items():
+            active = key == page
+            button.configure(
+                fg_color=ACTIVE if active else "transparent",
+                text_color=GOLD if active else TEXT,
+                hover_color=CARD2
+            )
+
+    def _build_status(self):
+        bar = ctk.CTkFrame(self, fg_color=CARD, corner_radius=0, height=32)
+        bar.pack(fill="x", side="bottom")
+        bar.pack_propagate(False)
+        ctk.CTkFrame(bar, height=1, fg_color=("#E2E8ED", "#2B333E")).pack(fill="x", side="top")
+        self.status_left = ctk.CTkLabel(bar, text="", text_color=SUB, font=self.fonts["small"])
+        self.status_left.pack(side="left", padx=16, pady=5)
+        self.status_right = ctk.CTkLabel(bar, text="", text_color=GOLD, font=self.fonts["small"])
+        self.status_right.pack(side="right", padx=16, pady=5)
 
     def _tab_translate(self, tab):
         ctk.CTkLabel(tab, text="DETECTED SIGN", font=self.fonts["small_b"], text_color=SUB).pack(pady=(10, 0))
@@ -1267,7 +1411,7 @@ class App(ctk.CTk):
 
     def _theme_label(self):
         dark = ctk.get_appearance_mode() == "Dark"
-        self.theme_btn.configure(text="Light mode" if dark else "Dark mode")
+        self.theme_btn.configure(text="Light theme" if dark else "Dark theme")
 
     def toggle_theme(self):
         new = "Light" if ctk.get_appearance_mode() == "Dark" else "Dark"
