@@ -51,7 +51,6 @@ Default mappings include:
 | Closed_Fist | STOP |
 | Pointing_Up | ATTENTION |
 | Victory | PEACE |
-| ILoveYou | I LOVE YOU |
 
 The output mappings can be changed in the application settings. These are application-defined gesture-to-text mappings, not translations of complete ASL expressions.
 
