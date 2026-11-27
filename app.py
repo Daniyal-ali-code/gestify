@@ -265,8 +265,24 @@ def dynamic_features(frames, n):
 
 
 def motion_amount(frames):
-    poses = np.array([f[1] for f in frames], dtype=np.float32)
-    return float((poses.max(axis=0) - poses.min(axis=0)).max())
+    """Measure both wrist travel and changes in finger/hand shape.
+
+    Wrist-only movement rejected valid signs such as opening/closing a hand
+    when the wrist stays almost stationary. Shape features capture those signs.
+    """
+    if len(frames) < 2:
+        return 0.0
+
+    poses = np.asarray([f[1] for f in frames], dtype=np.float32)
+    wrist_motion = float((poses.max(axis=0) - poses.min(axis=0)).max())
+
+    shapes = np.asarray([f[0] for f in frames], dtype=np.float32)
+    if shapes.ndim != 2 or shapes.shape[0] < 2:
+        return wrist_motion
+
+    shape_change = np.mean(np.abs(shapes - shapes[0]), axis=1)
+    finger_motion = float(np.max(shape_change)) * 3.0
+    return max(wrist_motion, finger_motion)
 
 
 def asl_features(pts, w, h):
@@ -300,13 +316,51 @@ class KeypointClassifier:
         except TypeError:
             self.it = interp(model_content=content)
         self.it.allocate_tensors()
-        self.i_idx = self.it.get_input_details()[0]["index"]
-        self.o_idx = self.it.get_output_details()[0]["index"]
+        self.input_detail = self.it.get_input_details()[0]
+        self.output_detail = self.it.get_output_details()[0]
+        self.i_idx = self.input_detail["index"]
+        self.o_idx = self.output_detail["index"]
+        self.input_shape = tuple(int(v) for v in self.input_detail["shape"])
+        self.output_shape = tuple(int(v) for v in self.output_detail["shape"])
+        self.input_size = int(np.prod(self.input_shape))
+        self.output_size = int(np.prod(self.output_shape))
+
+        if self.input_size != 42:
+            raise RuntimeError(
+                f"ASL model expects {self.input_size} input values; "
+                "the application provides 42 hand-landmark values"
+            )
+        if self.output_size != len(ASL_LABELS):
+            raise RuntimeError(
+                f"ASL model returns {self.output_size} classes; expected {len(ASL_LABELS)} letters"
+            )
 
     def predict(self, vec):
-        self.it.set_tensor(self.i_idx, vec[None, :].astype(np.float32))
+        values = np.asarray(vec, dtype=np.float32).reshape(-1)
+        if values.size != self.input_size:
+            raise ValueError(
+                f"ASL feature size mismatch: expected {self.input_size}, got {values.size}"
+            )
+
+        input_dtype = self.input_detail["dtype"]
+        if np.issubdtype(input_dtype, np.integer):
+            scale, zero_point = self.input_detail.get("quantization", (0.0, 0))
+            if scale:
+                values = np.round(values / scale + zero_point)
+        tensor = values.astype(input_dtype).reshape(self.input_shape)
+
+        self.it.set_tensor(self.i_idx, tensor)
         self.it.invoke()
         out = np.squeeze(self.it.get_tensor(self.o_idx))
+
+        if np.issubdtype(out.dtype, np.integer):
+            scale, zero_point = self.output_detail.get("quantization", (0.0, 0))
+            if scale:
+                out = (out.astype(np.float32) - zero_point) * scale
+
+        out = np.asarray(out, dtype=np.float32).reshape(-1)
+        if out.size == 0 or not np.all(np.isfinite(out)):
+            raise RuntimeError("ASL model returned an empty or invalid prediction")
         i = int(np.argmax(out))
         return i, float(out[i])
 
@@ -325,14 +379,28 @@ class SampleStore:
     def save(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         if self.X is not None and len(self.y):
-            np.savez(self.path, X=self.X, y=self.y)
+            temp_path = self.path.with_name(self.path.stem + ".tmp.npz")
+            np.savez_compressed(temp_path, X=self.X, y=self.y)
+            os.replace(temp_path, self.path)
         elif self.path.exists():
             self.path.unlink()
 
     def add(self, x, label):
-        x = np.asarray(x, dtype=np.float32)[None, :]
-        self.X = x if self.X is None or len(self.y) == 0 else np.vstack([self.X, x])
-        self.y = np.append(self.y, np.array([label], dtype="<U64"))
+        """Append a sample without replacing samples from existing labels."""
+        x = np.asarray(x, dtype=np.float32).reshape(1, -1)
+        label = str(label).strip()
+        if not label:
+            raise ValueError("A training label cannot be empty")
+        if self.X is None or len(self.y) == 0:
+            self.X = x.copy()
+            self.y = np.asarray([label], dtype="<U64")
+            return
+        if self.X.ndim != 2 or self.X.shape[1] != x.shape[1]:
+            raise ValueError(
+                f"Training feature size mismatch: saved {self.X.shape}, new {x.shape}"
+            )
+        self.X = np.concatenate((self.X, x), axis=0)
+        self.y = np.concatenate((self.y, np.asarray([label], dtype="<U64")))
 
     def count(self, label=None):
         return int(len(self.y) if label is None else np.sum(self.y == label))
@@ -588,8 +656,48 @@ class Engine(threading.Thread):
 
     def start_motion(self, label):
         with self.lock:
-            self.rec = {"active": True, "kind": "motion", "label": label, "frames": [],
-                        "start": time.time() + 1.5}
+            start = time.time() + 1.5
+            self.rec = {
+                "active": True,
+                "kind": "motion",
+                "label": label,
+                "frames": [],
+                "start": start,
+                "deadline": start + 15.0,
+            }
+
+    def _finish_motion_locked(self, timed_out=False):
+        if not self.rec.get("active") or self.rec.get("kind") != "motion":
+            return
+
+        label = self.rec["label"]
+        frames = list(self.rec.get("frames", []))
+        self.rec = {"active": False}
+
+        required = int(self.cfg["dynamic_resample"])
+        if len(frames) < required:
+            self.q.put(("flash", f"Not saved: detected {len(frames)} frames; at least {required} are needed."))
+            self.q.put(("samples",))
+            return
+
+        movement = motion_amount(frames)
+        if movement < float(self.cfg["min_motion"]):
+            self.q.put(("flash", "Not saved: movement was too small. Repeat the sign with clearer motion."))
+            self.q.put(("samples",))
+            return
+
+        self.dynamic.add(
+            dynamic_features(frames, int(self.cfg["dynamic_resample"])),
+            label
+        )
+        self.dynamic.save()
+        self.q.put(("samples",))
+        prefix = "Timed recording saved" if timed_out else "Saved motion"
+        self.q.put(("flash", f"{prefix} '{label}' ({self.dynamic.count(label)} samples)"))
+
+    def stop_motion(self):
+        with self.lock:
+            self._finish_motion_locked()
 
     def cancel_rec(self):
         with self.lock:
@@ -734,9 +842,17 @@ class Engine(threading.Thread):
                 if hands and self.asl is not None:
                     vec = asl_features(hands[0]["pts"], w, h)
                     if vec is not None:
-                        idx, c = self.asl.predict(vec)
-                        if c >= float(cfg["alphabet_min_conf"]) and idx < len(ASL_LABELS):
-                            pred, conf, source = ASL_LABELS[idx], c, "ASL model"
+                        try:
+                            idx, c = self.asl.predict(vec)
+                            if idx >= len(ASL_LABELS):
+                                hint = f"ASL model returned class {idx}; expected A-Z labels."
+                            elif c >= float(cfg["alphabet_min_conf"]):
+                                pred, conf, source = ASL_LABELS[idx], c, "ASL model"
+                            else:
+                                hint = f"Hand detected. Low ASL confidence ({c:.2f}); hold the sign clearly in view."
+                        except Exception as exc:
+                            self.asl_error = f"{type(exc).__name__}: {exc}"
+                            hint = "ASL prediction failed: " + self.asl_error
             elif mode == "Custom Hold":
                 shape = shape_features(slots)
                 if present:
@@ -760,16 +876,19 @@ class Engine(threading.Thread):
                     else:
                         if present:
                             self.rec["frames"].append((shape_features(slots), position_features(slots)))
-                        n_need = int(cfg["dynamic_window"])
-                        rec_text = f"Recording '{self.rec['label']}' {len(self.rec['frames'])}/{n_need}"
-                        if len(self.rec["frames"]) >= n_need:
-                            self.dynamic.add(dynamic_features(self.rec["frames"], int(cfg["dynamic_resample"])),
-                                             self.rec["label"])
-                            self.dynamic.save()
-                            lb = self.rec["label"]
-                            self.rec = {"active": False}
-                            self.q.put(("samples",))
-                            self.q.put(("flash", f"Saved motion '{lb}' ({self.dynamic.count(lb)} samples)"))
+                        n_need = max(
+                            int(cfg["dynamic_window"]),
+                            int(cfg["dynamic_resample"]) * 3
+                        )
+                        frame_count = len(self.rec["frames"])
+                        rec_text = (
+                            f"Recording '{self.rec['label']}' - {frame_count}/{n_need} frames. "
+                            "Keep your hand visible and complete the movement."
+                        )
+                        if frame_count >= n_need:
+                            self._finish_motion_locked()
+                        elif now >= self.rec.get("deadline", now + 1):
+                            self._finish_motion_locked(timed_out=True)
             elif mode == "Custom Motion":
                 if present:
                     self.window.append((shape_features(slots), position_features(slots)))
@@ -1212,9 +1331,9 @@ class App(ctk.CTk):
         ctk.CTkLabel(camera_top, text="Camera preview", font=self.fonts["h2"], text_color=TEXT).pack(side="left")
         self.mode_btn = ctk.CTkSegmentedButton(
             camera_top, values=MODES, command=self.set_mode,
-            selected_color=BURG, selected_hover_color=BURG_H,
+            selected_color=ACTIVE, selected_hover_color=ACTIVE,
             unselected_color=SEG_OFF, unselected_hover_color=SEG_OFF_H,
-            text_color=ON_BURG, fg_color=SEG_OFF, corner_radius=8
+            text_color=TEXT, fg_color=SEG_OFF, corner_radius=8
         )
         self.mode_btn.set(self.cfg["mode"])
         self.mode_btn.pack(side="right")
@@ -1241,10 +1360,37 @@ class App(ctk.CTk):
 
         train_page = ctk.CTkFrame(self.page_host, fg_color="transparent")
         train_page.grid_rowconfigure(0, weight=1)
-        train_page.grid_columnconfigure(0, weight=1)
+        train_page.grid_columnconfigure((0, 1), weight=1, uniform="train")
         train_card = self._card(train_page)
-        train_card.grid(row=0, column=0, sticky="nsew")
+        train_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         self._tab_train(train_card)
+
+        train_camera_card = self._card(train_page)
+        train_camera_card.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        ctk.CTkLabel(
+            train_camera_card, text="Live training camera",
+            font=self.fonts["h2"], text_color=TEXT
+        ).pack(anchor="w", padx=16, pady=(14, 4))
+        ctk.CTkLabel(
+            train_camera_card,
+            text="Keep your hand visible in this preview while recording.",
+            font=self.fonts["small"], text_color=SUB
+        ).pack(anchor="w", padx=16, pady=(0, 10))
+        self.train_video_holder = ctk.CTkFrame(
+            train_camera_card, fg_color=("#E9EEF1", "#0D1117"), corner_radius=10
+        )
+        self.train_video_holder.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+        self.train_video_holder.pack_propagate(False)
+        self.train_video_label = ctk.CTkLabel(
+            self.train_video_holder, text="Waiting for camera...",
+            text_color=SUB, font=self.fonts["serif"]
+        )
+        self.train_video_label.place(relx=0.5, rely=0.5, anchor="center")
+        self.train_rec_status = ctk.CTkLabel(
+            train_camera_card, text="Camera ready when the live feed appears.",
+            text_color=SUB, font=self.fonts["small"], wraplength=440
+        )
+        self.train_rec_status.pack(fill="x", padx=16, pady=(0, 14))
         self.pages["train"] = train_page
 
         history_page = ctk.CTkFrame(self.page_host, fg_color="transparent")
@@ -1329,21 +1475,29 @@ class App(ctk.CTk):
         ghost_button(g, "Save...", self.save_text).grid(row=1, column=2, padx=4, pady=3, sticky="ew")
 
     def _tab_train(self, tab):
-        ctk.CTkLabel(tab, text="Teach the app your own signs. Type a word or letter, then record.",
+        ctk.CTkLabel(tab, text="Teach the app your own signs. Add a new label whenever you want to train another sign; existing labels are kept.",
                      text_color=SUB, wraplength=380, justify="left", font=self.fonts["small"]
                      ).pack(anchor="w", padx=14, pady=(10, 6))
-        self.label_entry = ctk.CTkEntry(tab, placeholder_text="Label (e.g. THANK YOU)", fg_color=FIELD,
-                                        border_color=GOLD, text_color=TEXT, height=34)
-        self.label_entry.pack(fill="x", padx=14, pady=4)
+        label_row = ctk.CTkFrame(tab, fg_color="transparent")
+        label_row.pack(fill="x", padx=14, pady=4)
+        self.label_entry = ctk.CTkEntry(
+            label_row, placeholder_text="Sign label (e.g. THANK YOU)",
+            fg_color=FIELD, border_color=GOLD, text_color=TEXT, height=34
+        )
+        self.label_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ghost_button(
+            label_row, "New label", self.new_training_label, width=84, height=34
+        ).pack(side="right")
         row = ctk.CTkFrame(tab, fg_color="transparent")
         row.pack(fill="x", padx=10)
         row.grid_columnconfigure((0, 1), weight=1)
         self.rec_hold_btn = gold_button(row, "Record hold sign", self.toggle_hold_record)
         self.rec_hold_btn.grid(row=0, column=0, padx=4, pady=4, sticky="ew")
-        burg_button(row, "Record motion sign", self.record_motion).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
+        self.rec_motion_btn = burg_button(row, "Record motion sign", self.record_motion)
+        self.rec_motion_btn.grid(row=0, column=1, padx=4, pady=4, sticky="ew")
         self.rec_label = ctk.CTkLabel(tab, text="Hold: show the sign, press record, move slightly, press stop.\n"
                                                 "Motion: press record, wait for the countdown, perform it once.\n"
-                                                "Repeat 8-15 times for motion signs.",
+                                                "Record several examples for each label to improve recognition.",
                                       text_color=SUB, wraplength=380, justify="left", font=self.fonts["small"])
         self.rec_label.pack(anchor="w", padx=14, pady=6)
         rule(tab).pack(fill="x", padx=14, pady=4)
@@ -1513,6 +1667,11 @@ class App(ctk.CTk):
         self.hist.configure(state="disabled")
 
     # ---- training
+    def new_training_label(self):
+        self.label_entry.delete(0, "end")
+        self.label_entry.focus()
+        self.flash("Enter a new label. Existing trained signs will be kept.")
+
     def _label(self):
         lb = self.label_entry.get().strip()
         if not lb:
@@ -1535,12 +1694,18 @@ class App(ctk.CTk):
         self.rec_hold_btn.configure(text="Stop recording")
 
     def record_motion(self):
+        if self.rec_motion_btn.cget("text") == "Stop motion recording":
+            self.engine.stop_motion()
+            self.rec_motion_btn.configure(text="Record motion sign")
+            return
+
         lb = self._label()
         if not lb:
             return
         if self.cfg["mode"] != "Custom Motion":
             self.set_mode("Custom Motion")
         self.engine.start_motion(lb)
+        self.rec_motion_btn.configure(text="Stop motion recording")
 
     def refresh_samples(self):
         for w in self.samples_frame.winfo_children():
@@ -1642,6 +1807,7 @@ class App(ctk.CTk):
             elif kind == "samples":
                 self.refresh_samples()
                 self.rec_hold_btn.configure(text="Record hold sign")
+                self.rec_motion_btn.configure(text="Record motion sign")
             elif kind == "flash":
                 self.flash(ev[1])
         while True:
@@ -1663,16 +1829,9 @@ class App(ctk.CTk):
                 if model_ok(key):
                     self.engine.reload_models()
 
-    def _show_frame(self, frame, fid, info):
-        if frame is None:
-            if self.frame_seen != -2:
-                self.video_label.configure(image=None, text=info.get("status", "Waiting for camera..."))
-                self.frame_seen = -2
-            return
-        if fid == self.frame_seen:
-            return
-        self.frame_seen = fid
-        hw, hh = self.video_holder.winfo_width() - 8, self.video_holder.winfo_height() - 8
+    def _render_preview(self, holder, label, frame):
+        hw = holder.winfo_width() - 8
+        hh = holder.winfo_height() - 8
         if hw < 50 or hh < 50:
             return
         fh, fw = frame.shape[:2]
@@ -1680,8 +1839,22 @@ class App(ctk.CTk):
         size = (max(1, int(fw * scale)), max(1, int(fh * scale)))
         img = Image.fromarray(cv2.resize(frame, size, interpolation=cv2.INTER_AREA))
         photo = ctk.CTkImage(light_image=img, dark_image=img, size=size)
-        self.video_label.configure(image=photo, text="")
-        self.video_label._photo = photo  # keep reference
+        label.configure(image=photo, text="")
+        label._photo = photo
+
+    def _show_frame(self, frame, fid, info):
+        if frame is None:
+            if self.frame_seen != -2:
+                message = info.get("status", "Waiting for camera...")
+                self.video_label.configure(image=None, text=message)
+                self.train_video_label.configure(image=None, text=message)
+                self.frame_seen = -2
+            return
+        if fid == self.frame_seen:
+            return
+        self.frame_seen = fid
+        self._render_preview(self.video_holder, self.video_label, frame)
+        self._render_preview(self.train_video_holder, self.train_video_label, frame)
 
     def _show_info(self, info):
         pred = info.get("pred")
@@ -1692,8 +1865,15 @@ class App(ctk.CTk):
         hint = info.get("hint", "")
         rec = info.get("rec_text", "")
         self.hint_label.configure(text=rec or hint, text_color=BAD if rec else WARN)
-        if info.get("rec_active") is False and self.rec_hold_btn.cget("text") == "Stop recording":
-            self.rec_hold_btn.configure(text="Record hold sign")
+        self.train_rec_status.configure(
+            text=rec or hint or "Camera ready. Choose a label and start recording.",
+            text_color=BAD if rec else (WARN if hint else SUB)
+        )
+        if info.get("rec_active") is False:
+            if self.rec_hold_btn.cget("text") == "Stop recording":
+                self.rec_hold_btn.configure(text="Record hold sign")
+            if self.rec_motion_btn.cget("text") == "Stop motion recording":
+                self.rec_motion_btn.configure(text="Record motion sign")
         cam = self.cfg["camera_index"]
         tr = info.get("tracker") or "none"
         self.status_left.configure(
