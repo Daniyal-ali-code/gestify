@@ -1,614 +1,345 @@
-# Gestify — ASL Fingerspelling Recognition
+# Gestify
 
-**Turning Hand Gestures into Words.**
+**Real-time hand-gesture and ASL fingerspelling recognition on your desktop.**
 
-Gestify is a Python desktop application that uses a webcam, MediaPipe
-hand tracking and a pretrained TensorFlow Lite classifier to recognize
-American Sign Language (ASL) hand gestures and fingerspelled letters.
+Gestify is a Python desktop application that uses a webcam and hand-landmark tracking to recognize selected hand gestures, classify ASL fingerspelling letters, and let users train their own static and movement-based gestures.
 
-It can display recognized gestures and letters and compose recognized
-output into text.
+It is an experimental recognition and learning tool. It is **not** a complete American Sign Language (ASL) translator and does not currently interpret continuous ASL sentences, grammar, or facial expressions.
 
-This is an actively developed experimental prototype, not a complete
-ASL language translation system.
+## Contents
 
----
+- [Features](#features)
+- [Recognition modes](#recognition-modes)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Running Gestify](#running-gestify)
+- [Using the application](#using-the-application)
+- [Project files and local data](#project-files-and-local-data)
+- [Models and acknowledgements](#models-and-acknowledgements)
+- [Troubleshooting](#troubleshooting)
+- [Current limitations](#current-limitations)
+- [Development roadmap](#development-roadmap)
+- [Developers](#developers)
 
-# 1. Current Project Status
+## Features
 
-**Status: Working webcam prototype; recognition accuracy testing pending.**
+- Live webcam preview with hand tracking.
+- Four recognition modes: Gestures, Alphabet, Custom Hold, and Custom Motion.
+- ASL alphabet classification for A–Z using a pretrained keypoint classifier.
+- Configurable mappings from built-in gestures to words or phrases.
+- In-app tools for collecting and training custom static and dynamic gestures.
+- Recognition output that can be composed into text.
+- Recognition history and a model library.
+- Dark and light appearance options.
+- Adjustable camera, detection, confidence, and recognition settings.
+- CPU-oriented operation; a dedicated GPU is not required by the documented setup.
 
-The application has successfully launched on the development laptop.
-Live hand tracking, gesture recognition and text/word output have been
-manually tested and reported working.
+## Recognition modes
 
-Verified technical results:
+### 1. Gestures
 
-- Webcam successfully opens using OpenCV camera index 0.
-- Webcam frame resolution: 640x480.
-- MediaPipe 0.10.14 initializes without the previous CPU AES crash.
-- Gesture Recognizer model initializes successfully.
-- MediaPipe successfully processes real webcam frames.
-- A captured image containing a hand produced one detected hand.
-- The detected hand returned 21 landmarks.
-- Landmark coordinates have shape (21, 3).
-- ASL TensorFlow Lite classifier initializes successfully.
-- Application setup check passes.
-- Live application was manually tested successfully.
+Uses MediaPipe's pretrained Gesture Recognizer. The application maps recognized categories to configurable output text.
 
-**Important:** These results confirm that the application and tracking
-pipeline work. They do not establish a measured recognition accuracy
-for every ASL letter.
+Default mappings include:
 
----
+| Detected gesture | Default output |
+|---|---|
+| Open_Palm | HELLO |
+| Thumb_Up | YES |
+| Thumb_Down | NO |
+| Closed_Fist | STOP |
+| Pointing_Up | ATTENTION |
+| Victory | PEACE |
+| ILoveYou | I LOVE YOU |
 
-# 2. Development Environment
+The output mappings can be changed in the application settings. These are application-defined gesture-to-text mappings, not translations of complete ASL expressions.
 
-The application was developed and tested on:
+### 2. Alphabet
+
+Uses a pretrained TensorFlow Lite keypoint classifier to classify hand configurations as ASL letters A–Z. The classifier receives hand-landmark data rather than a full image.
+
+**Important:** J and Z are movement-based letters. A classifier that evaluates individual frames cannot reliably recognize their complete movement paths. The other 24 static letters still require systematic accuracy testing; no formal accuracy percentage is claimed.
+
+### 3. Custom Hold
+
+Lets a user collect examples of a held hand shape, assign it a label, and train a custom static gesture recognizer using the in-app trainer.
+
+### 4. Custom Motion
+
+Lets a user collect examples of a gesture that changes over time and train a custom movement-based recognizer. Recognition uses a sequence of hand-landmark observations rather than a single static pose.
+
+Custom recognition quality depends on the number, consistency, and variety of examples collected. Train and test custom gestures under conditions similar to real use.
+
+## How it works
+
+The main recognition pipeline is:
+
+1. Open a webcam and capture a frame.
+2. Process the frame with the available MediaPipe task model.
+3. Detect a hand and obtain its landmarks.
+4. Send the landmark data to the selected recognizer.
+5. Apply the configured confidence and recognition-stability settings.
+6. Display the recognized label and, where applicable, add it to the text output.
+
+The selected mode determines which recognizer processes the hand data. Gesture recognition uses the pretrained MediaPipe Gesture Recognizer; Alphabet uses the ASL keypoint classifier; Custom Hold and Custom Motion use user-collected training samples.
+
+## Requirements
+
+- Python 3.11.
+- A working webcam.
+- Windows or Linux.
+- A supported Tk installation (Tkinter is included with many Windows Python installations; on Fedora it may need to be installed separately).
+- Internet access for initial dependency or model downloads, if the required files are not already present.
+
+### Tested development environment
+
+The project has been tested in these environments:
 
 | Component | Tested configuration |
 |---|---|
-| OS | Fedora Linux |
-| Python | 3.11.18 |
-| CPU | Intel Core i3 M 330 @ 2.13 GHz |
-| CPU architecture | x86_64 |
-| CPU AES support | Not advertised in lscpu flags |
-| Integrated GPU | Intel HD Graphics (Ironlake) |
-| Tk | 8.6 |
-| Camera | /dev/video0 |
-| Working camera index | 0 |
-| Working resolution | 640x480 |
-
-The laptop is an older, low-resource machine. CPU compatibility and
-memory usage are important design constraints.
-
-The application should not require a modern GPU.
-
-# 3. Main Technologies and Tested Versions
-
-The working development environment contains:
-
-| Package | Tested version |
-|---|---|
+| Windows Python | 3.11.9 |
+| Fedora Python | 3.11.18 |
 | MediaPipe | 0.10.14 |
 | NumPy | 2.4.6 |
 | OpenCV contrib | 5.0.0.93 |
-| Protobuf | 4.25.8 |
-| attrs | 26.1.0 |
-| LiteRT | 2.3.0 |
 | CustomTkinter | 6.0.0 |
-| Pillow | 13.0.0 |
-| Python | 3.11.18 |
+| LiteRT | 2.3.0 |
+| Camera index | 0 |
+| Camera resolution | 640 × 480 |
 
-See requirements.txt for the pinned base dependencies.
+The tested Fedora laptop uses an older Intel Core i3 M330 CPU. MediaPipe 0.10.14 initialized successfully on that machine. A newer MediaPipe build previously caused an AES-instruction compatibility crash on that particular CPU. Keep the tested version on that hardware unless a newer version has been verified there.
 
-**Critical CPU compatibility note:**
+The exact packages pinned in [requirements.txt](requirements.txt) are the project's base Python dependencies. MediaPipe 0.10.14 is installed separately because the tested setup uses it without installing its optional dependency set.
 
-MediaPipe 1.2.3 caused an illegal-instruction crash while initializing
-the tracking model on the development laptop.
+## Installation
 
-The error was:
+### Windows (PowerShell)
 
-    FATAL ERROR: This binary was compiled with aes enabled,
-    but this feature is not available on this processor.
+Clone the repository and enter its directory:
 
-The Intel Core i3 M330 does not advertise AES support.
+```powershell
+git clone https://github.com/Daniyal-ali-code/gestify.git
+cd gestify
+```
 
-MediaPipe 0.10.14 successfully initializes the Gesture Recognizer
-on this same processor. Keep MediaPipe pinned to 0.10.14 on this
-tested machine. Do not casually upgrade it to a newer version.
+Create and activate a virtual environment:
 
-MediaPipe is installed separately with --no-deps because its unused
-JAX/JAXLib dependencies are not required by this application's
-MediaPipe Tasks tracking pipeline.
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
 
----
+Install the base dependencies:
 
-# 4. Features and Application Modes
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
-## Alphabet mode
+Install the tested MediaPipe version:
 
-- Uses a pretrained ASL alphabet keypoint classifier.
-- Includes labels A-Z.
-- Uses hand landmarks as classifier input.
-- Recognizes static hand configurations.
-- Recognized letters can be composed into text.
+```powershell
+python -m pip install --no-deps mediapipe==0.10.14
+```
 
-**J and Z limitation:**
+If PowerShell blocks virtual-environment activation, run the interpreter directly instead:
 
-ASL J and Z require movement. The current alphabet classifier
-classifies individual frames rather than full motion sequences.
-Therefore J and Z are unreliable.
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install --no-deps mediapipe==0.10.14
+```
 
-The other 24 static letters are intended to be recognized, but their
-accuracy has not yet been formally benchmarked.
+### Fedora Linux
 
-## Gesture mode
+Install Python 3.11 and Tkinter (package names can vary by Fedora release):
 
-Uses MediaPipe's pretrained Gesture Recognizer.
+```bash
+sudo dnf install python3.11 python3.11-tkinter
+```
 
-The built-in gesture mappings include:
+Create and activate a virtual environment:
 
-- Open_Palm -> HELLO
-- Thumb_Up -> YES
-- Thumb_Down -> NO
-- Closed_Fist -> STOP
-- Pointing_Up -> ATTENTION
-- Victory -> PEACE
-- ILoveYou -> I LOVE YOU
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+```
 
-These mappings can be changed in Settings.
+Install dependencies:
 
-## Custom Hold
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install --no-deps mediapipe==0.10.14
+```
 
-Allows the user to teach the application held hand-shape gestures.
+If the system does not provide the requested Python package under that exact name, install the equivalent Python 3.11 and Tkinter packages available for your Fedora release.
 
-## Custom Motion
+## Running Gestify
 
-Allows the user to teach the application movement-based gestures.
+From the project directory:
 
-## Text composition
+**Windows**
 
-The application supports composing recognized output into words
-and displaying the resulting text.
+```powershell
+.\run.bat
+```
 
----
+Or:
 
-# 5. Model Files
+```powershell
+.\.venv\Scripts\python.exe .\app.py
+```
 
-All three model files are currently included in the models directory.
+**Linux**
 
-| File | Purpose |
-|---|---|
-| gesture_recognizer.task | Gesture recognition and primary hand tracking |
-| hand_landmarker.task | Fallback hand landmark tracking |
-| keypoint_classifier.tflite | ASL alphabet A-Z classifier |
+```bash
+chmod +x run.sh
+./run.sh
+```
 
-Approximate file sizes:
+Or:
 
-- gesture_recognizer.task: 8.0 MB
-- hand_landmarker.task: 7.5 MB
-- keypoint_classifier.tflite: 28 KB
+```bash
+.venv/bin/python app.py
+```
 
-## Model sources
+### Check the installation
 
-MediaPipe Gesture Recognizer:
+Run the application setup check:
 
-https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task
+```bash
+python app.py --check
+```
 
-MediaPipe Hand Landmarker:
+Compile the main Python files:
 
-https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task
+```bash
+python -m py_compile app.py sign_language_setup.py
+```
 
-ASL alphabet classifier:
+On Windows, use the virtual-environment interpreter if it is not activated:
 
-https://raw.githubusercontent.com/Muhib-Mehdi/ASL-Recognition-System/main/model/keypoint_classifier/keypoint_classifier.tflite
+```powershell
+.\.venv\Scripts\python.exe .\app.py --check
+.\.venv\Scripts\python.exe -m py_compile .\app.py .\sign_language_setup.py
+```
 
-Credits:
+## Using the application
 
-- MediaPipe by Google.
-- ASL alphabet keypoint classifier by Muhib-Mehdi (MIT).
-- The initial Ars Signorum application foundation was obtained from
-  SdheroPro/ai-sign-language-translator. The original MIT license
-  is retained.
+1. Start Gestify using the launcher for your operating system.
+2. Allow camera access if the operating system requests it.
+3. Select the desired recognition mode.
+4. Position your hand clearly inside the camera frame.
+5. Use the on-screen controls to start recognition and view the predicted output.
+6. For custom recognition, open the Custom Trainer, record examples for each label, and train the model.
+7. Review previous recognition activity in History and inspect available models in Model Library.
+8. Adjust recognition thresholds, camera options, text formatting, and gesture-to-text mappings in settings when necessary.
 
----
+For more reliable results, use even lighting, keep the hand inside the camera frame, avoid cluttered backgrounds, and collect varied training examples for custom gestures.
 
-# 6. Troubleshooting History — Issues and Fixes
+## Project files and local data
 
-This section records the actual debugging process so future
-development sessions do not repeat unsuccessful investigations.
+```text
+gestify/
+├── app.py                  # Main desktop application
+├── sign_language_setup.py  # Setup and dependency/model helper
+├── requirements.txt        # Pinned base Python dependencies
+├── run.bat                 # Windows launcher
+├── run.sh                  # Linux launcher
+├── settings.json           # Application preferences
+├── models/
+│   ├── gesture_recognizer.task
+│   ├── hand_landmarker.task
+│   └── keypoint_classifier.tflite
+├── data/                   # Locally collected samples and history
+└── README.md
+```
 
-## Issue 1: Missing Tkinter
+The application may create or use the following local data files:
 
-Initial error:
+- `data/static_samples.npz` — samples for custom held gestures.
+- `data/dynamic_samples.npz` — samples for custom movement gestures.
+- `data/history.log` — recognition history.
+- `settings.json` — camera, appearance, mode, and recognition preferences.
 
-    Tk is missing from this Python.
+Keep personal training samples and local preferences backed up. Do not publish private or sensitive recordings. The `.venv` directory and Python cache files are generated locally and should not be committed.
 
-Cause:
+## Models and acknowledgements
 
-The Python 3.11 installation did not have Tkinter available.
+The application uses these model files:
 
-Fix:
+| File | Role | Source |
+|---|---|---|
+| `gesture_recognizer.task` | Gesture classification and hand tracking | [MediaPipe Gesture Recognizer](https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task) |
+| `hand_landmarker.task` | Fallback hand-landmark detection | [MediaPipe Hand Landmarker](https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task) |
+| `keypoint_classifier.tflite` | ASL alphabet keypoint classification | [ASL Recognition System model](https://raw.githubusercontent.com/Muhib-Mehdi/ASL-Recognition-System/main/model/keypoint_classifier/keypoint_classifier.tflite) |
 
-Installed the Fedora Tkinter package:
+Acknowledgements:
 
-    sudo dnf install python3.11-tkinter
+- [MediaPipe](https://developers.google.com/mediapipe) by Google provides the hand and gesture task framework and models.
+- The ASL alphabet keypoint classifier is by Muhib-Mehdi and is distributed under its MIT license.
 
-Verification:
+Third-party software and model terms remain applicable to their respective components. See the included license and the relevant upstream project terms before redistributing or modifying third-party components.
 
-    python -c "import tkinter; print(tkinter.TkVersion)"
+## Troubleshooting
 
-Result:
+### Camera does not open
 
-    Tkinter OK: 8.6
+- Check that the webcam is connected and not being used by another application.
+- Try camera index 0 first; it is the index used in the tested setup.
+- On Linux, inspect available video devices with `ls -l /dev/video*`.
+- Try the 640 × 480 resolution to reduce processing load.
 
-Status: FIXED.
+### Tkinter is missing
 
-## Issue 2: Missing hand-tracking models
+On Fedora, install the Python 3.11 Tkinter package:
 
-Initial application message:
+```bash
+sudo dnf install python3.11-tkinter
+```
 
-    No hand tracking model - open models tab
+On Windows, use a Python installation that includes Tcl/Tk support.
 
-The Models tab displayed:
+### A model is missing or fails to load
 
-    Download failed - Paste file manually
+- Confirm that the required files exist in the `models/` directory.
+- Check that downloads completed and that files are not partial downloads.
+- Run `python app.py --check` to inspect the application setup.
+- Use the Model Library or setup helper to obtain missing model files.
 
-Investigation showed:
+### MediaPipe crashes on an older CPU
 
-- gesture_recognizer.part
-- hand_landmarker.part
+A previous tested configuration using a newer MediaPipe build failed on an Intel Core i3 M330 because the binary expected AES CPU support. MediaPipe 0.10.14 worked on that machine. This is a hardware-specific compatibility observation, not a guarantee for every CPU.
 
-These were incomplete downloads.
+### Recognition is inconsistent
 
-The official MediaPipe model files were downloaded manually and
-saved with their expected filenames:
+- Improve lighting and keep the hand fully visible.
+- Keep the camera steady and avoid rapid unintended movement.
+- Review confidence and stabilization settings.
+- For custom modes, record more examples from slightly different positions and repeat the training process.
+- Do not infer overall ASL accuracy from a few successful predictions; evaluate each letter and gesture systematically.
 
-    models/gesture_recognizer.task
-    models/hand_landmarker.task
+## Current limitations
 
-The incomplete .part files were removed.
+- The 24 static ASL letters have not yet been formally benchmarked.
+- J and Z require motion-aware recognition and are not reliably handled by the current single-frame alphabet classifier.
+- Gesture-to-word mappings are configurable shortcuts, not full ASL translation.
+- The application does not currently provide continuous sentence-level ASL translation, ASL grammar interpretation, or facial-expression analysis.
+- Recognition quality depends on camera quality, lighting, hand position, and training data.
+- Performance and recognition latency can vary with hardware.
 
-The ASL classifier was already bundled:
+## Development roadmap
 
-    models/keypoint_classifier.tflite
+1. **Evaluate static alphabet recognition:** benchmark A–I and K–Y, record correct and incorrect predictions, and measure stability and false detections.
+2. **Improve J and Z recognition:** investigate motion sequences and lightweight trajectory-based classification.
+3. **Measure live performance:** record frame rate, CPU use, memory use, and recognition latency on low-resource hardware.
+4. **Improve testing:** evaluate different lighting conditions, camera angles, hand distances, and users.
+5. **Maintain accurate documentation:** publish measured results and clearly distinguish tested behavior from planned work.
 
-Status: FIXED.
+## Developers
 
-## Issue 3: Illegal instruction / AES CPU incompatibility
+- **Daniyal Ali**
+- **Ayesha Zafar**
 
-Initial error:
-
-    FATAL ERROR: This binary was compiled with aes enabled,
-    but this feature is not available on this processor.
-
-The installed MediaPipe 1.2.3 imported successfully, but both
-Gesture Recognizer and Hand Landmarker initialization caused
-the crash.
-
-The CPU flags showed that Intel Core i3 M330 does not advertise AES.
-
-The ASL LiteRT classifier could initialize independently, so
-LiteRT was not identified as the cause of this particular crash.
-
-Fix:
-
-MediaPipe was downgraded to 0.10.14.
-
-The older wheel was recovered from the local pip cache, avoiding
-another large internet download.
-
-Protobuf 4.25.8 and attrs 26.1.0 were also installed from cache.
-
-MediaPipe was installed with:
-
-    python -m pip install --no-index --no-deps \
-        /path/to/mediapipe-0.10.14.whl
-
-After installation:
-
-    python -c "import mediapipe as mp; print(mp.__version__)"
-
-Result:
-
-    0.10.14
-
-The Gesture Recognizer then initialized successfully without
-the AES crash.
-
-Status: FIXED ON THE TESTED CPU.
-
-Do not upgrade MediaPipe on this laptop without retesting CPU
-compatibility.
-
-## Issue 4: Slow package downloads
-
-Large downloads from PyPI and an alternative mirror were
-extremely slow and repeatedly interrupted.
-
-The attempted MediaPipe 0.10.21 installation was abandoned.
-
-Instead of repeatedly downloading packages, the local pip HTTP
-cache was inspected and used to recover compatible wheels.
-
-Useful diagnostic command:
-
-    python -m pip cache list
-
-Note: pip cache list only displays its wheel cache. Downloaded
-HTTP cache bodies can contain wheels that are not displayed by
-that command.
-
-No reason exists to repeat the large downgrade downloads when
-the working MediaPipe 0.10.14 environment is already available.
-
-Status: RESOLVED FOR CURRENT DEVELOPMENT ENVIRONMENT.
-
-## Issue 5: Camera index errors
-
-Initial messages included:
-
-    Camera index out of range
-
-Fedora exposed:
-
-    /dev/video0
-    /dev/video1
-
-Independent OpenCV testing showed:
-
-- Camera 0 successfully captured a 640x480 frame.
-- Camera 1 could not be opened.
-
-Fix:
-
-Use camera index 0.
-
-The default resolution was reduced from 1280x720 to 640x480
-to reduce processing load on the old laptop.
-
-Status: FIXED.
-
-## Issue 6: Zero hand detections in an initial test
-
-An early 30-frame test returned:
-
-    Frames tested: 30
-    Frames with detected hands: 0
-    Maximum hands detected: 0
-
-This initially appeared to indicate a detection failure.
-
-However, the user was not showing a hand to the camera during
-that test. Therefore the result was inconclusive.
-
-A live camera capture was then performed with the user showing
-an open palm and pressing S to save the image.
-
-The image was saved as camera_debug.jpg.
-
-MediaPipe was tested against that actual image.
-
-Result:
-
-    Hands detected: 1
-    Hand 1: 21 landmarks
-    Coordinates: (21, 3)
-
-Status: RESOLVED; the original zero-detection result was caused
-by testing without a hand in view.
-
-## Issue 7: Live camera and MediaPipe integration
-
-After fixing MediaPipe compatibility and identifying camera 0,
-a real webcam frame was successfully passed through the
-Gesture Recognizer.
-
-Verification confirmed:
-
-- Camera frame: (480, 640, 3)
-- Tracker initialization: successful
-- MediaPipe frame processing: successful
-
-The complete desktop application was then launched.
-
-The user confirmed that live tracking worked very well and that
-the application could detect signs and display recognized words.
-
-Status: WORKING IN MANUAL TESTING.
-
----
-
-# 7. Important Diagnostic Commands
-
-Activate the environment:
-
-    cd ~/Projects/gestify
-    source .venv/bin/activate
-
-Check the environment:
-
-    python app.py --check
-
-Compile the Python files:
-
-    python -m py_compile app.py sign_language_setup.py
-
-Launch the application:
-
-    ./run.sh
-
-Inspect CPU features:
-
-    lscpu | grep -E 'Model name|Flags'
-
-Check available cameras:
-
-    ls -l /dev/video*
-
-Check installed relevant packages:
-
-    python -m pip show mediapipe numpy opencv-contrib-python protobuf ai-edge-litert
-
-## Camera configuration
-
-The tested settings are:
-
-    camera_index: 0
-    resolution: 640x480
-    show_landmarks: true
-    mode: Alphabet
-
-The application stores these settings in settings.json.
-
-Do not commit personal runtime data or webcam debug images.
-
----
-
-# 8. Installation on Fedora
-
-The tested Python version is Python 3.11.
-
-Install Tkinter:
-
-    sudo dnf install python3.11-tkinter
-
-Create a virtual environment:
-
-    python3.11 -m venv .venv
-
-Activate it:
-
-    source .venv/bin/activate
-
-Install the pinned base dependencies:
-
-    python -m pip install -r requirements.txt
-
-Install the tested MediaPipe version without pulling unused
-JAX dependencies:
-
-    python -m pip install --no-deps mediapipe==0.10.14
-
-Check the setup:
-
-    python app.py --check
-
-Run:
-
-    ./run.sh
-
-The bundled setup script is also available:
-
-    python sign_language_setup.py --dir . --no-run
-
-Then:
-
-    ./run.sh
-
-The initial installation needs internet access for packages and
-any model files that are not already present.
-
----
-
-# 9. Repository and Git Workflow
-
-GitHub repository:
-
-https://github.com/Daniyal-ali-code/gestify
-
-Default branch:
-
-    main
-
-Important local directories:
-
-    ~/Projects/gestify
-    ~/Projects/gestify-publish
-    ~/Projects/signbridge-ai
-
-The active development project is:
-
-    ~/Projects/gestify
-
-The publishing clone is:
-
-    ~/Projects/gestify-publish
-
-The publishing clone's origin points to:
-
-    https://github.com/Daniyal-ali-code/gestify.git
-
-**Important Git warning:**
-
-The development directory ~/Projects/gestify was originally cloned
-from SdheroPro/ai-sign-language-translator. Its Git remote may still
-point to that upstream repository.
-
-Use ~/Projects/gestify-publish for commits and pushes to the user's
-Daniyal-ali-code/gestify repository unless its remote is deliberately
-changed and verified.
-
-The separate ~/Projects/signbridge-ai directory was not modified
-during the Gestify publishing process.
-
-The virtual environment, __pycache__, generated data and temporary
-downloads should not be committed.
-
-The models directory is intentionally committed because the project
-requires these pretrained models.
-
----
-
-# 10. Current Limitations
-
-1. The 24 static ASL letters have not undergone a formal accuracy test.
-2. J and Z require motion recognition and are unreliable with the
-   current single-frame alphabet classifier.
-3. Performance and latency should be measured on the older CPU.
-4. Recognition should be tested under different lighting conditions,
-   hand distances and camera angles.
-5. Gesture recognition and fingerspelling do not amount to full
-   continuous ASL sentence translation.
-6. The fallback Hand Landmarker has not been independently
-   revalidated after the MediaPipe downgrade.
-
-Do not describe the application as a fully accurate ASL translator
-until the relevant recognition tests have been completed.
-
----
-
-# 11. Next Development Tasks
-
-Continue from this list:
-
-## Priority 1 — Alphabet recognition evaluation
-
-- Test all static letters A-I and K-Y.
-- Record correct and incorrect predictions.
-- Test repeated recognition of each letter.
-- Measure false predictions and recognition stability.
-- Adjust confidence thresholds and stabilization only after
-  collecting test results.
-
-## Priority 2 — J and Z motion recognition
-
-- Capture sequences of hand landmarks across multiple frames.
-- Develop a lightweight motion classifier or trajectory rules.
-- Keep CPU and memory requirements low.
-- Test J and Z separately from static letters.
-
-## Priority 3 — Live performance
-
-- Measure FPS on the Intel Core i3 M330.
-- Check CPU and memory usage.
-- Reduce unnecessary camera processing.
-- Maintain a responsive desktop interface.
-
-## Priority 4 — Testing and documentation
-
-- Test with different lighting conditions and hand positions.
-- Record recognition results.
-- Keep this README updated with verified results.
-- Avoid claiming accuracy without measured evidence.
-
----
-
-# 12. Handoff Notes for Future Development Sessions
-
-When continuing this project in a new development session:
-
-1. Read this README first.
-2. Use Python 3.11.
-3. Preserve MediaPipe 0.10.14 on the tested old CPU.
-4. Use camera 0 at 640x480.
-5. Work in ~/Projects/gestify for application development.
-6. Use ~/Projects/gestify-publish for GitHub commits and pushes
-   until the development remote has been corrected.
-7. Do not repeat the already-solved Tkinter, missing-model,
-   AES compatibility or camera-index investigations.
-8. Start with alphabet recognition evaluation, followed by J/Z
-   motion recognition.
-
-The immediate next task is to benchmark the 24 static ASL letters.
+Gestify is an actively developed project. Contributions, reproducible bug reports, and carefully documented recognition tests are welcome.
