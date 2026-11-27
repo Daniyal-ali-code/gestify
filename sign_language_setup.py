@@ -141,7 +141,6 @@ DEFAULTS = {
         "Closed_Fist": "STOP",
         "Pointing_Up": "ATTENTION",
         "Victory": "PEACE",
-        "ILoveYou": "I LOVE YOU",
     },
 }
 
@@ -745,7 +744,7 @@ class Engine(threading.Thread):
                 best = None
                 for hd in hands:
                     g = hd["gesture"]
-                    if g and g != "None" and (best is None or hd["gscore"] > best["gscore"]):
+                    if g and g not in ("None", "ILoveYou") and (best is None or hd["gscore"] > best["gscore"]):
                         best = hd
                 if best and best["gscore"] >= float(cfg["gesture_min_score"]):
                     pred = cfg["gesture_words"].get(best["gesture"], best["gesture"].replace("_", " ").upper())
@@ -1022,7 +1021,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self.menu("Theme", "appearance", ["Dark", "Light", "System"], on_change="theme")
 
         self.section("Gesture vocabulary")
-        ctk.CTkLabel(self.body, text="The pretrained recogniser knows 8 gestures. Choose the word each one types.",
+        ctk.CTkLabel(self.body, text="Choose the output text for each supported built-in gesture.",
                      text_color=SUB, wraplength=470, justify="left").pack(anchor="w", padx=8, pady=(0, 4))
         for gname in app.cfg["gesture_words"]:
             r = self.row(gname.replace("_", " "))
@@ -1778,7 +1777,6 @@ The built-in gesture mappings include:
 - Closed_Fist -> STOP
 - Pointing_Up -> ATTENTION
 - Victory -> PEACE
-- ILoveYou -> I LOVE YOU
 
 These mappings can be changed in Settings.
 
