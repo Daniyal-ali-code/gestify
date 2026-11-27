@@ -1190,6 +1190,7 @@ class App(ctk.CTk):
         }
         self.q = queue.Queue()
         self.ui_q = queue.Queue()
+        self.speech_worker = None
         self.cameras = [self.cfg["camera_index"]]
         self.settings_win = None
         self.frame_seen = -1
@@ -1275,6 +1276,7 @@ class App(ctk.CTk):
             ("train", "✳", "Custom trainer"),
             ("history", "↶", "History"),
             ("models", "◇", "Model library"),
+            ("speech", "♫", "Speech-to-Text"),
         ]
         for page, symbol, label in nav_items:
             button = ctk.CTkButton(
@@ -1411,6 +1413,83 @@ class App(ctk.CTk):
         self._tab_models(models_card)
         self.pages["models"] = models_page
 
+        speech_page = ctk.CTkFrame(self.page_host, fg_color="transparent")
+        speech_page.grid_rowconfigure(1, weight=1)
+        speech_page.grid_columnconfigure(0, weight=1)
+
+        speech_card = self._card(speech_page)
+        speech_card.grid(row=0, column=0, sticky="nsew")
+        speech_top = ctk.CTkFrame(speech_card, fg_color="transparent")
+        speech_top.pack(fill="x", padx=18, pady=(18, 8))
+        ctk.CTkLabel(
+            speech_top, text="Live speech captions",
+            font=self.fonts["h2"], text_color=TEXT
+        ).pack(side="left")
+        self.speech_status_label = ctk.CTkLabel(
+            speech_top, text="Microphone stopped",
+            font=self.fonts["small"], text_color=SUB
+        )
+        self.speech_status_label.pack(side="right")
+
+        ctk.CTkLabel(
+            speech_card,
+            text="Convert spoken English into on-screen captions. "
+                 "Recognition runs locally on your computer.",
+            font=self.fonts["small"], text_color=SUB, wraplength=850,
+            justify="left"
+        ).pack(anchor="w", padx=18, pady=(0, 14))
+
+        controls = ctk.CTkFrame(speech_card, fg_color="transparent")
+        controls.pack(fill="x", padx=14, pady=(0, 12))
+        ctk.CTkLabel(
+            controls, text="Language", font=self.fonts["small_b"], text_color=SUB
+        ).pack(side="left", padx=(4, 8))
+        ctk.CTkLabel(
+            controls, text="English", font=self.fonts["small_b"],
+            text_color=TEXT
+        ).pack(side="left", padx=(0, 12))
+
+        self.speech_start_btn = gold_button(
+            controls, "Start Listening", self.start_speech, width=135
+        )
+        self.speech_start_btn.pack(side="left", padx=4)
+        self.speech_stop_btn = burg_button(
+            controls, "Stop", self.stop_speech, width=85, state="disabled"
+        )
+        self.speech_stop_btn.pack(side="left", padx=4)
+
+        transcript_card = self._card(speech_page)
+        transcript_card.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
+        transcript_card.grid_rowconfigure(1, weight=1)
+        transcript_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            transcript_card, text="TRANSCRIPT",
+            font=self.fonts["small_b"], text_color=SUB
+        ).pack(anchor="w", padx=18, pady=(16, 6))
+        self.speech_transcript = ctk.CTkTextbox(
+            transcript_card, font=self.fonts["serif"], fg_color=FIELD,
+            text_color=TEXT, border_width=1, border_color=GOLD,
+            wrap="word"
+        )
+        self.speech_transcript.pack(
+            fill="both", expand=True, padx=16, pady=(0, 12)
+        )
+        speech_actions = ctk.CTkFrame(
+            transcript_card, fg_color="transparent"
+        )
+        speech_actions.pack(fill="x", padx=12, pady=(0, 14))
+        ghost_button(
+            speech_actions, "Copy", self.copy_speech, width=90
+        ).pack(side="left", padx=4)
+        ghost_button(
+            speech_actions, "Clear", self.clear_speech, width=90
+        ).pack(side="left", padx=4)
+        ghost_button(
+            speech_actions, "Save transcript", self.save_speech, width=130
+        ).pack(side="left", padx=4)
+
+        self.pages["speech"] = speech_page
+
         self.show_page("live")
 
     def show_page(self, page):
@@ -1419,6 +1498,7 @@ class App(ctk.CTk):
             "train": ("Custom trainer", "Record and manage your own custom signs."),
             "history": ("Recognition history", "Review previous recognition events."),
             "models": ("Model library", "Manage the pretrained recognition models."),
+            "speech": ("English Speech-to-Text", "Turn spoken English into live captions offline."),
         }
         if page not in self.pages:
             return
@@ -1817,7 +1897,29 @@ class App(ctk.CTk):
                 ev = self.ui_q.get_nowait()
             except queue.Empty:
                 break
-            if ev[0] == "cameras":
+            if ev[0] == "speech_status":
+                self.speech_status_label.configure(text=ev[1])
+            elif ev[0] == "speech_result":
+                _, spoken_text, detected_language = ev
+                current = self.speech_transcript.get("1.0", "end-1c")
+                if current and not current.endswith("\\n"):
+                    self.speech_transcript.insert("end", "\\n")
+                self.speech_transcript.insert("end", spoken_text)
+                self.speech_transcript.see("end")
+                self.speech_status_label.configure(
+                    text=f"Listening · detected {detected_language}"
+                )
+            elif ev[0] == "speech_error":
+                self.speech_status_label.configure(text="Speech recognition error")
+                self.flash(ev[1], 8)
+                self.speech_start_btn.configure(state="normal")
+                self.speech_stop_btn.configure(state="disabled")
+            elif ev[0] == "speech_stopped":
+                self.speech_status_label.configure(text="Microphone stopped")
+                self.speech_start_btn.configure(state="normal")
+                self.speech_stop_btn.configure(state="disabled")
+                self.speech_worker = None
+            elif ev[0] == "cameras":
                 self.cameras = ev[1] or [self.cfg["camera_index"]]
                 if ev[2]:
                     ev[2]()
@@ -1882,12 +1984,65 @@ class App(ctk.CTk):
             text=f"{info.get('status', '')}   |   Camera {cam}   |   {info.get('fps', 0):.0f} FPS   |   "
                  f"hands: {info.get('hands', 0)}   |   tracker: {tr}   |   mode: {self.cfg['mode']}")
 
+    def start_speech(self):
+        if self.speech_worker is not None and self.speech_worker.is_alive():
+            return
+        try:
+            from speech_to_text import SpeechToTextWorker
+            self.speech_worker = SpeechToTextWorker(self.ui_q)
+            self.speech_start_btn.configure(state="disabled")
+            self.speech_stop_btn.configure(state="normal")
+            self.speech_status_label.configure(text="Starting offline speech recognition...")
+            self.speech_worker.start()
+        except Exception as exc:
+            self.speech_worker = None
+            self.speech_start_btn.configure(state="normal")
+            self.speech_stop_btn.configure(state="disabled")
+            self.speech_status_label.configure(text="Could not start microphone")
+            self.flash(f"{type(exc).__name__}: {exc}", 8)
+
+    def stop_speech(self):
+        if self.speech_worker is not None:
+            self.speech_status_label.configure(text="Stopping microphone...")
+            self.speech_stop_btn.configure(state="disabled")
+            self.speech_worker.stop()
+
+    def copy_speech(self):
+        text = self.speech_transcript.get("1.0", "end-1c").strip()
+        if not text:
+            self.flash("Nothing to copy")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.flash("Speech transcript copied")
+
+    def clear_speech(self):
+        self.speech_transcript.delete("1.0", "end")
+        self.flash("Speech transcript cleared")
+
+    def save_speech(self):
+        text = self.speech_transcript.get("1.0", "end-1c").strip()
+        if not text:
+            self.flash("Nothing to save")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            initialfile="speech-transcript.txt",
+            filetypes=[("Text file", "*.txt")]
+        )
+        if path:
+            Path(path).write_text(text + "\\n", encoding="utf-8")
+            self.flash(f"Saved {Path(path).name}")
+
     def on_close(self):
         try:
             self.cfg["geometry"] = self.geometry().split("+")[0]
         except Exception:
             pass
         save_settings(self.cfg)
+        if self.speech_worker is not None:
+            self.speech_worker.stop()
+            self.speech_worker.join(timeout=2)
         self.engine.stop()
         self.engine.join(timeout=2)
         self.engine.shutdown_save()

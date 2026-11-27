@@ -10,6 +10,7 @@ It is an experimental recognition and learning tool. It is **not** a complete Am
 
 - [Features](#features)
 - [Recognition modes](#recognition-modes)
+- [Speech-to-Text](#speech-to-text)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -31,6 +32,8 @@ It is an experimental recognition and learning tool. It is **not** a complete Am
 - In-app tools for collecting and training custom static and dynamic gestures.
 - Recognition output that can be composed into text.
 - Recognition history and a model library.
+- English-only offline Speech-to-Text with live captions.
+- Microphone controls and transcript copy, clear, and save options.
 - Dark and light appearance options.
 - Adjustable camera, detection, confidence, and recognition settings.
 - CPU-oriented operation; a dedicated GPU is not required by the documented setup.
@@ -70,6 +73,45 @@ Lets a user collect examples of a gesture that changes over time and train a cus
 
 Custom recognition quality depends on the number, consistency, and variety of examples collected. Train and test custom gestures under conditions similar to real use.
 
+## Speech-to-Text
+
+Gestify includes an English-only Speech-to-Text page that converts microphone
+speech into on-screen captions.
+
+Features:
+
+- Live microphone capture with Start Listening and Stop controls.
+- English speech recognition using the Whisper Base model.
+- Transcript displayed inside the application.
+- Copy, clear, and save transcript options.
+- Speech processing runs locally on the computer. Audio is not sent to a
+  cloud transcription service, and no API key or account is required.
+
+### First-time model setup
+
+The Whisper Base model must be available locally before using Speech-to-Text.
+Download it once while connected to the internet:
+
+```bash
+python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8'); print('Whisper Base model is ready.')"
+```
+
+This downloads the model into the local model cache. After the download,
+Gestify loads it in local-only mode, so Speech-to-Text can operate without an
+internet connection.
+
+On Windows, run the command using the project virtual environment if needed:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8'); print('Whisper Base model is ready.')"
+```
+
+The first model load can take some time, especially on a CPU. Recognition speed
+and accuracy depend on the computer, microphone, background noise, and speech
+clarity. Captions are produced in chunks, so they may not appear word-by-word
+with zero delay. The feature is intended for English speech and does not claim
+perfect transcription accuracy.
+
 ## How it works
 
 The main recognition pipeline is:
@@ -86,7 +128,8 @@ The selected mode determines which recognizer processes the hand data. Gesture r
 ## Requirements
 
 - Python 3.11.
-- A working webcam.
+- A working webcam for sign recognition.
+- A working microphone for Speech-to-Text.
 - Windows or Linux.
 - A supported Tk installation (Tkinter is included with many Windows Python installations; on Fedora it may need to be installed separately).
 - Internet access for initial dependency or model downloads, if the required files are not already present.
@@ -103,6 +146,8 @@ The project has been tested in these environments:
 | NumPy | 2.4.6 |
 | OpenCV contrib | 5.0.0.93 |
 | CustomTkinter | 6.0.0 |
+| faster-whisper | 1.2.1 |
+| sounddevice | 0.5.6 |
 | LiteRT | 2.3.0 |
 | Camera index | 0 |
 | Camera resolution | 640 × 480 |
@@ -234,6 +279,7 @@ On Windows, use the virtual-environment interpreter if it is not activated:
 6. For custom recognition, open the Custom Trainer, record examples for each label, and train the model.
 7. Review previous recognition activity in History and inspect available models in Model Library.
 8. Adjust recognition thresholds, camera options, text formatting, and gesture-to-text mappings in settings when necessary.
+9. Open Speech-to-Text, click Start Listening, and speak English into your microphone. Use Stop when finished, then copy or save the transcript.
 
 For more reliable results, use even lighting, keep the hand inside the camera frame, avoid cluttered backgrounds, and collect varied training examples for custom gestures.
 
@@ -327,6 +373,7 @@ A previous tested configuration using a newer MediaPipe build failed on an Intel
 - The application does not currently provide continuous sentence-level ASL translation, ASL grammar interpretation, or facial-expression analysis.
 - Recognition quality depends on camera quality, lighting, hand position, and training data.
 - Performance and recognition latency can vary with hardware.
+- Speech-to-Text currently supports English only. Transcription accuracy is not guaranteed and may be affected by noise, accent, microphone quality, and CPU performance.
 
 ## Development roadmap
 

@@ -10,4 +10,4 @@ sounddevice>=0.4.4
 customtkinter==6.0.0
 pillow==13.0.0
 ai-edge-litert==2.3.0
-# optional: pyttsx3
+# optional: pyttsx3\nfaster-whisper==1.2.1\n
