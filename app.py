@@ -107,7 +107,7 @@ DEFAULTS = {
     "static_max_distance": 1.6,
     "dynamic_max_distance": 2.2,
     "min_motion": 0.12,
-    "dynamic_window": 30,
+    "dynamic_window": 18,
     "dynamic_resample": 16,
     "text_case": "UPPERCASE",
     "speak_on_word": False,
@@ -606,7 +606,9 @@ class Engine(threading.Thread):
         self.mode = cfg["mode"]
         self.frame, self.frame_id, self.info = None, 0, {"status": "Starting..."}
         self.stab = None
-        self.window = deque(maxlen=int(cfg["dynamic_window"]))
+        # A shorter rolling window reduces motion-recognition latency.
+        # Keep the feature resampling size unchanged so existing trained samples remain compatible.
+        self.window = deque(maxlen=min(int(cfg["dynamic_window"]), 18))
         self.missing = 0
         self.dyn_candidate, self.dyn_block = None, 0.0
         self.rec = {"active": False}
@@ -637,7 +639,7 @@ class Engine(threading.Thread):
 
     def apply_config(self):
         with self.lock:
-            self.window = deque(self.window, maxlen=int(self.cfg["dynamic_window"]))
+            self.window = deque(self.window, maxlen=min(int(self.cfg["dynamic_window"]), 18))
             self.static.k = self.dynamic.k = int(self.cfg["knn_k"])
             self._new_stab()
 
@@ -897,7 +899,8 @@ class Engine(threading.Thread):
                     self.missing += 1
                     if self.missing > 6:
                         self.window.clear()
-                if (len(self.window) == self.window.maxlen and self.frame_no % 4 == 0 and now >= self.dyn_block):
+                # Evaluate twice as often once the shorter motion window is full.
+                if (len(self.window) == self.window.maxlen and self.frame_no % 2 == 0 and now >= self.dyn_block):
                     frames = list(self.window)
                     if motion_amount(frames) >= float(cfg["min_motion"]):
                         p, c = self.dynamic.predict(dynamic_features(frames, int(cfg["dynamic_resample"])),
